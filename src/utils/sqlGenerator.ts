@@ -110,55 +110,65 @@ function generateForeignKeys(
   
   let sql = '';
   const fullName = schemaName ? `${schemaName}.${table.name}` : table.name;
-  const createdConstraints = new Set<string>(); // Track created constraints to avoid duplicates
+  const createdConstraints = new Set<string>();
+  
+  // Group FK columns by referenced table to detect composite keys
+  const fksByRefTable = new Map<string, string[]>();
   
   for (const fk of table.foreignKeys) {
-    // Find the referenced table
-    const refTable = allTables.find(t => t.name === fk.referencedTable);
+    const key = fk.referencedTable;
+    if (!fksByRefTable.has(key)) {
+      fksByRefTable.set(key, []);
+    }
+    fksByRefTable.get(key)!.push(...fk.columns);
+  }
+  
+  // Process each referenced table
+  for (const [refTableName, fkColumns] of fksByRefTable) {
+    const refTable = allTables.find(t => t.name === refTableName);
     if (!refTable) continue;
     
-    // Get the actual PK columns from the referenced table
     const refPkColumns = refTable.columns.filter(c => c.isPrimaryKey).map(c => c.name);
     if (refPkColumns.length === 0) continue;
     
-    // CRITICAL FIX: Match the number of FK columns to PK columns
-    // If we have more FK columns than PK columns, create separate FKs
-    if (fk.columns.length > refPkColumns.length && refPkColumns.length === 1) {
-      // Create separate single-column FKs
-      for (const fkCol of fk.columns) {
-        const constraintName = `fk_${table.name.toLowerCase()}_${fkCol.toLowerCase()}`;
-        
-        // Skip if already created
-        if (createdConstraints.has(constraintName)) continue;
+    // Remove duplicates from FK columns
+    const uniqueFkColumns = Array.from(new Set(fkColumns));
+    
+    // If we have a composite PK and matching number of FK columns, create composite FK
+    if (refPkColumns.length > 1 && uniqueFkColumns.length === refPkColumns.length) {
+      const constraintName = `fk_${table.name.toLowerCase()}_${refTableName.toLowerCase()}`;
+      
+      if (!createdConstraints.has(constraintName)) {
         createdConstraints.add(constraintName);
         
-        const refTableName = schemaName ? `${schemaName}.${fk.referencedTable}` : fk.referencedTable;
+        const refTableFullName = schemaName ? `${schemaName}.${refTableName}` : refTableName;
         
         sql += `ALTER TABLE ${fullName}\n`;
         sql += `    ADD CONSTRAINT ${constraintName}\n`;
-        sql += `    FOREIGN KEY (${fkCol})\n`;
-        sql += `    REFERENCES ${refTableName}(${refPkColumns[0]})\n`;
-        sql += `    ON DELETE ${fk.onDelete || onDeleteAction}\n`;
-        sql += `    ON UPDATE ${fk.onUpdate || onUpdateAction};\n\n`;
+        sql += `    FOREIGN KEY (${uniqueFkColumns.join(', ')})\n`;
+        sql += `    REFERENCES ${refTableFullName}(${refPkColumns.join(', ')})\n`;
+        sql += `    ON DELETE ${onDeleteAction}\n`;
+        sql += `    ON UPDATE ${onUpdateAction};\n\n`;
       }
-    } else if (fk.columns.length === refPkColumns.length) {
-      // Composite FK matches composite PK
-      const constraintName = fk.name || `fk_${table.name.toLowerCase()}_${fk.columns.join('_').toLowerCase()}`;
-      
-      // Skip if already created
-      if (createdConstraints.has(constraintName)) continue;
-      createdConstraints.add(constraintName);
-      
-      const refTableName = schemaName ? `${schemaName}.${fk.referencedTable}` : fk.referencedTable;
-      
-      sql += `ALTER TABLE ${fullName}\n`;
-      sql += `    ADD CONSTRAINT ${constraintName}\n`;
-      sql += `    FOREIGN KEY (${fk.columns.join(', ')})\n`;
-      sql += `    REFERENCES ${refTableName}(${refPkColumns.join(', ')})\n`;
-      sql += `    ON DELETE ${fk.onDelete || onDeleteAction}\n`;
-      sql += `    ON UPDATE ${fk.onUpdate || onUpdateAction};\n\n`;
+    } else {
+      // Create individual FKs for each column
+      for (const fkCol of uniqueFkColumns) {
+        const constraintName = `fk_${table.name.toLowerCase()}_${fkCol.toLowerCase()}`;
+        
+        if (!createdConstraints.has(constraintName)) {
+          createdConstraints.add(constraintName);
+          
+          const refTableFullName = schemaName ? `${schemaName}.${refTableName}` : refTableName;
+          
+          sql += `ALTER TABLE ${fullName}\n`;
+          sql += `    ADD CONSTRAINT ${constraintName}\n`;
+          sql += `    FOREIGN KEY (${fkCol})\n`;
+          sql += `    REFERENCES ${refTableFullName}(${refPkColumns[0]})\n`;
+          sql += `    ON DELETE ${onDeleteAction}\n`;
+          sql += `    ON UPDATE ${onUpdateAction};\n\n`;
+        }
+      }
     }
-    // Else: skip mismatched FKs
   }
   
   return sql;
@@ -169,8 +179,6 @@ function generateIndexes(table: Table, schemaName?: string): string {
   
   let sql = '';
   const fullName = schemaName ? `${schemaName}.${table.name}` : table.name;
-  
-  // Create separate indexes for each FK column
   const indexedColumns = new Set<string>();
   
   for (const fk of table.foreignKeys) {

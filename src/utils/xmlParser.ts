@@ -31,7 +31,7 @@ export function parseDrawioXML(xmlContent: string): ParseResult {
       if (style && style.includes('swimlane') && value && id) {
         const tableName = extractTableName(value);
         
-        // Skip duplicates
+        // Skip if already exists (deduplication)
         if (Array.from(tableMap.values()).some(t => t.name === tableName)) {
           continue;
         }
@@ -60,7 +60,7 @@ export function parseDrawioXML(xmlContent: string): ParseResult {
         if (columnInfo) {
           const table = tableMap.get(parent)!;
           
-          // Check for duplicates
+          // Check if column with same name already exists
           const existingColumn = table.columns.find(
             col => col.name.toUpperCase() === columnInfo.name.toUpperCase()
           );
@@ -68,10 +68,12 @@ export function parseDrawioXML(xmlContent: string): ParseResult {
           if (!existingColumn) {
             table.columns.push(columnInfo);
           } else {
+            // If duplicate, keep the one with more constraints (PK > FK > UNIQUE > regular)
             const newPriority = getColumnPriority(columnInfo);
             const existingPriority = getColumnPriority(existingColumn);
             
             if (newPriority > existingPriority) {
+              // Replace with the more important one
               const index = table.columns.indexOf(existingColumn);
               table.columns[index] = columnInfo;
             }
@@ -80,7 +82,7 @@ export function parseDrawioXML(xmlContent: string): ParseResult {
       }
     }
 
-    // Third pass: collect edges for documentation
+    // Third pass: detect relationships
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
       const style = cell.getAttribute('style');
@@ -94,11 +96,7 @@ export function parseDrawioXML(xmlContent: string): ParseResult {
     }
 
     detectJunctionTables(tableMap, edges);
-    
-    // IMPORTANT: Infer FK relationships from column names, NOT from edges
-    inferForeignKeys(tableMap);
-    
-    const relationships = buildRelationships(tableMap, edges);
+    const relationships = processRelationships(tableMap, edges);
 
     return {
       tables: Array.from(tableMap.values()),
@@ -129,21 +127,32 @@ function extractTableName(value: string): string {
   const temp = document.createElement('div');
   temp.innerHTML = value;
   let text = temp.textContent?.trim() || 'UnknownTable';
+  
+  // Clean up corrupted names
   text = cleanColumnName(text);
+  
   return text;
 }
 
 function cleanColumnName(text: string): string {
+  // Remove URL-encoded characters
   try {
     text = decodeURIComponent(text);
   } catch (e) {
-    // Continue with original
+    // If decoding fails, continue with original text
   }
   
+  // Remove embedded mxGraphModel XML garbage
   text = text.replace(/%3CmxGraphModel%3E.*?%3C%2FmxGraphModel%3E/gi, '');
   text = text.replace(/<mxGraphModel>.*?<\/mxGraphModel>/gi, '');
+  
+  // Remove any remaining HTML/XML tags
   text = text.replace(/<[^>]*>/g, '');
+  
+  // Remove HTML entities
   text = text.replace(/&[a-z]+;/gi, '');
+  
+  // Trim whitespace
   text = text.trim();
   
   return text;
@@ -154,6 +163,7 @@ function parseColumn(value: string): Column | null {
   temp.innerHTML = value;
   let text = temp.textContent?.trim() || '';
   
+  // Clean corrupted text
   text = cleanColumnName(text);
   
   if (!text.includes(':')) return null;
@@ -169,12 +179,15 @@ function parseColumn(value: string): Column | null {
   let namePart = parts[0].trim().replace(/^[+#]\s*/, '');
   const typePart = parts[1].trim().replace(/\[PK\]|\[FK\]|\[UNIQUE\]|\[UQ\]/g, '').trim();
   
+  // Additional cleaning for column name
   namePart = namePart.replace(/[%<>]/g, '').trim();
   
+  // Skip if name is still corrupted or too long
   if (namePart.length > 100 || namePart.includes('mxGraphModel')) {
     return null;
   }
   
+  // Skip if name is empty
   if (!namePart) return null;
   
   return {
@@ -199,104 +212,25 @@ function detectJunctionTables(tableMap: Map<string, Table>, edges: Edge[]): void
   }
 }
 
-/**
- * Infer foreign key relationships from column names marked with [FK]
- * This uses intelligent name matching to find the referenced table
- */
-function inferForeignKeys(tableMap: Map<string, Table>): void {
-  const tables = Array.from(tableMap.values());
-  
-  for (const table of tables) {
-    const fkColumns = table.columns.filter(c => c.isForeignKey);
-    
-    for (const fkCol of fkColumns) {
-      // Try to find the referenced table from the column name
-      const referencedTableName = guessReferencedTable(fkCol.name, tables, table.name);
-      
-      if (referencedTableName) {
-        const refTable = tables.find(t => t.name === referencedTableName);
-        if (refTable) {
-          const refPkColumns = refTable.columns.filter(c => c.isPrimaryKey).map(c => c.name);
-          
-          if (refPkColumns.length > 0) {
-            // Check if FK already exists
-            const exists = table.foreignKeys.some(
-              fk => fk.columns.includes(fkCol.name) && fk.referencedTable === referencedTableName
-            );
-            
-            if (!exists) {
-              table.foreignKeys.push({
-                columns: [fkCol.name],
-                referencedTable: referencedTableName,
-                referencedColumns: [refPkColumns[0]], // Use first PK column
-                onDelete: 'CASCADE',
-                onUpdate: 'CASCADE'
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-/**
- * Guess the referenced table name from a foreign key column name
- * Examples:
- * - USER_ID -> User
- * - D_DEMANDEUR_ID -> D_Demandeur
- * - CANDIDAT_ASD_ID -> Candidat
- */
-function guessReferencedTable(columnName: string, allTables: Table[], currentTableName: string): string | null {
-  const cleanName = columnName.toUpperCase().replace(/_ID$/i, '');
-  
-  // Try exact match first
-  for (const table of allTables) {
-    if (table.name.toUpperCase() === cleanName) {
-      return table.name;
-    }
-  }
-  
-  // Try partial match (column name contains table name)
-  for (const table of allTables) {
-    const tableNameUpper = table.name.toUpperCase();
-    if (cleanName.includes(tableNameUpper) || tableNameUpper.includes(cleanName)) {
-      return table.name;
-    }
-  }
-  
-  // Try without prefixes (D_, M_, P_, etc.)
-  const withoutPrefix = cleanName.replace(/^[A-Z]_/, '');
-  for (const table of allTables) {
-    const tableWithoutPrefix = table.name.toUpperCase().replace(/^[A-Z]_/, '');
-    if (withoutPrefix === tableWithoutPrefix) {
-      return table.name;
-    }
-  }
-  
-  // If nothing found, return null
-  return null;
-}
-
-/**
- * Build relationships from edges for documentation purposes
- */
-function buildRelationships(tableMap: Map<string, Table>, edges: Edge[]): Relationship[] {
+function processRelationships(tableMap: Map<string, Table>, edges: Edge[]): Relationship[] {
   const relationships: Relationship[] = [];
   
   for (const edge of edges) {
     const sourceTable = tableMap.get(edge.source);
     const targetTable = tableMap.get(edge.target);
     
-    if (sourceTable && targetTable) {
-      const cardinality = determineCardinality(edge.style);
-      relationships.push({
-        fromTable: sourceTable.name,
-        toTable: targetTable.name,
-        cardinality,
-        edge
-      });
-    }
+    if (!sourceTable || !targetTable) continue;
+    
+    const cardinality = determineCardinality(edge.style);
+    
+    relationships.push({
+      fromTable: sourceTable.name,
+      toTable: targetTable.name,
+      cardinality,
+      edge
+    });
+    
+    createForeignKey(sourceTable, targetTable, cardinality, edge);
   }
   
   return relationships;
@@ -308,4 +242,47 @@ function determineCardinality(style: string): Cardinality {
   if (style.includes('ERmanyToMany')) return Cardinality.MANY_TO_MANY;
   if (style.includes('ERoneToOne')) return Cardinality.ONE_TO_ONE;
   return Cardinality.ONE_TO_MANY;
+}
+
+function createForeignKey(sourceTable: Table, targetTable: Table, cardinality: Cardinality, edge: Edge): void {
+  let tableWithFK: Table;
+  let referencedTable: Table;
+  
+  if (cardinality === Cardinality.ONE_TO_MANY) {
+    tableWithFK = targetTable;
+    referencedTable = sourceTable;
+  } else if (cardinality === Cardinality.MANY_TO_ONE) {
+    tableWithFK = sourceTable;
+    referencedTable = targetTable;
+  } else if (cardinality === Cardinality.ONE_TO_ONE) {
+    tableWithFK = targetTable;
+    referencedTable = sourceTable;
+  } else {
+    return;
+  }
+  
+  const fkColumns = tableWithFK.columns.filter(col => 
+    col.isForeignKey && (
+      col.name.toUpperCase().includes(referencedTable.name.toUpperCase()) ||
+      col.name.toUpperCase().endsWith('_ID') ||
+      col.name.toUpperCase() === 'ID'
+    )
+  );
+  
+  if (fkColumns.length === 0) return;
+  
+  const pkColumns = referencedTable.columns.filter(col => col.isPrimaryKey).map(col => col.name);
+  if (pkColumns.length === 0) pkColumns.push('ID');
+  
+  const existingFk = tableWithFK.foreignKeys.find(fk => fk.columns[0] === fkColumns[0].name);
+  
+  if (!existingFk) {
+    tableWithFK.foreignKeys.push({
+      columns: fkColumns.map(c => c.name),
+      referencedTable: referencedTable.name,
+      referencedColumns: pkColumns,
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE'
+    });
+  }
 }

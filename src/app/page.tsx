@@ -105,6 +105,9 @@ export default function Home() {
             onRegenerateSQL={handleRegenerateSQL}
           />
         )}
+
+        {/* Schema Visualizer & Tester */}
+       
       </div>
     </main>
   );
