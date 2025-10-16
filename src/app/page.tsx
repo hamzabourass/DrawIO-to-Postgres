@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Database } from 'lucide-react';
+import { Database, Sparkles, Zap } from 'lucide-react';
 import FileUpload from '../components/FileUpload';
 import TablePreview from '../components/TablePreview';
 import SQLOutput from '../components/SQLOutput';
@@ -67,19 +67,74 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
-      <div className="max-w-7xl mx-auto">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-violet-50 to-purple-50 p-8">
+      {/* Background decorative elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-20 w-96 h-96 bg-violet-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
+        <div className="absolute top-40 right-20 w-96 h-96 bg-fuchsia-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+        <div className="absolute bottom-20 left-1/2 w-96 h-96 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
+      </div>
+
+      <style jsx>{`
+        @keyframes blob {
+          0% {
+            transform: translate(0px, 0px) scale(1);
+          }
+          33% {
+            transform: translate(30px, -50px) scale(1.1);
+          }
+          66% {
+            transform: translate(-20px, 20px) scale(0.9);
+          }
+          100% {
+            transform: translate(0px, 0px) scale(1);
+          }
+        }
+        .animate-blob {
+          animation: blob 7s infinite;
+        }
+        .animation-delay-2000 {
+          animation-delay: 2s;
+        }
+        .animation-delay-4000 {
+          animation-delay: 4s;
+        }
+      `}</style>
+
+      <div className="max-w-7xl mx-auto relative z-10">
         {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center mb-4">
-            <Database className="w-12 h-12 text-indigo-600 mr-3" />
-            <h1 className="text-4xl font-bold text-gray-800">
-              Draw.io to PostgreSQL
-            </h1>
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center mb-6">
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 rounded-3xl blur-2xl opacity-40 animate-pulse"></div>
+              <div className="relative p-5 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 rounded-3xl shadow-2xl transform hover:scale-110 transition-transform duration-300">
+                <Database className="w-16 h-16 text-white" />
+              </div>
+            </div>
           </div>
-          <p className="text-gray-600 text-lg">
-            Convert your draw.io database diagrams into PostgreSQL 15.5 DDL scripts
+          
+          <h1 className="text-6xl font-black mb-4 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">
+            Draw.io to PostgreSQL
+          </h1>
+          
+          <p className="text-gray-600 text-xl max-w-2xl mx-auto font-medium mb-6">
+            Convert your draw.io database diagrams into production-ready PostgreSQL 15.5 DDL scripts
           </p>
+
+          <div className="flex items-center justify-center gap-6 text-sm">
+            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-md border-2 border-violet-200">
+              <Zap className="w-4 h-4 text-violet-600" />
+              <span className="font-bold text-gray-700">Fast</span>
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-md border-2 border-purple-200">
+              <Sparkles className="w-4 h-4 text-purple-600" />
+              <span className="font-bold text-gray-700">Accurate</span>
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-md border-2 border-fuchsia-200">
+              <Database className="w-4 h-4 text-fuchsia-600" />
+              <span className="font-bold text-gray-700">Professional</span>
+            </div>
+          </div>
         </div>
 
         {/* Alerts */}
@@ -106,8 +161,12 @@ export default function Home() {
           />
         )}
 
-        {/* Schema Visualizer & Tester */}
-       
+        {/* Footer */}
+        <div className="mt-12 text-center">
+          <p className="text-sm text-gray-500 font-medium">
+            Built for database designers
+          </p>
+        </div>
       </div>
     </main>
   );
