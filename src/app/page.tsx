@@ -6,6 +6,7 @@ import FileUpload from '../components/FileUpload';
 import TablePreview from '../components/TablePreview';
 import SQLOutput from '../components/SQLOutput';
 import Alert from '../components/Alert';
+import Documentation from '../components/Documentation';
 import { parseDrawioXML } from '../utils/xmlParser';
 import { generateSQL } from '../utils/sqlGenerator';
 import { Table, SQLGenerationOptions } from '@/types/database';
@@ -145,6 +146,9 @@ export default function Home() {
           <Alert type="error" message={error} onClose={() => setError('')} />
         )}
 
+        {/* Documentation Section */}
+        <Documentation />
+
         {/* File Upload */}
         <FileUpload onFileLoad={handleFileLoad} />
 
@@ -164,7 +168,7 @@ export default function Home() {
         {/* Footer */}
         <div className="mt-12 text-center">
           <p className="text-sm text-gray-500 font-medium">
-            Built for database designers
+            Built with ❤️ for database designers
           </p>
         </div>
       </div>
